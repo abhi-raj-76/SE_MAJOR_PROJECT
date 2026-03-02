@@ -51,14 +51,14 @@ def generate_codellama_java(n):
     codes = []
     for i in range(n):
         topic = TOPICS[i % len(TOPICS)]
-        prompt = f"Generate a Java class demonstrating: {topic}. Include loops, conditions, and OOP. Return only Java code."
+        prompt = f"Write a simple Java class for: {topic}. Max 20 lines. Code only."
 
         try:
             response = requests.post(OLLAMA_URL, json={
                 "model": MODEL,
                 "prompt": prompt,
                 "stream": False
-            }, timeout=120)
+            }, timeout=300)
             response.raise_for_status()
             codes.append(response.json()["response"])
             print(f"  Ollama [{i+1}/{n}] {topic}")
