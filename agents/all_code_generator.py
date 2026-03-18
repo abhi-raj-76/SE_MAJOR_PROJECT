@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 import os
+import re
 import requests
 import base64
 import time
@@ -12,7 +13,7 @@ if not GITHUB_TOKEN:
 
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"}
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "codellama"
+MODEL = "codellama:7b"
 SAVE_DIR = "java_samples"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -20,8 +21,22 @@ TOPICS = ["sorting algorithms", "OOP inheritance", "recursion",
           "file handling", "collections", "generics", "multithreading",
           "exception handling", "linked list", "binary search"]
 
+
+def extract_class_name(code):
+    """Extract public class name to use as filename."""
+    match = re.search(r'public\s+class\s+(\w+)', code)
+    return match.group(1) if match else None
+
+
+def clean_code(code):
+    """Strip markdown backticks from LLM response."""
+    code = re.sub(r'```java', '', code)
+    code = re.sub(r'```', '', code)
+    return code.strip()
+
+
 def fetch_github_java(n):
-    n = min(n, 30)  
+    n = min(n, 30)
     url = "https://api.github.com/search/code"
     params = {"q": "extension:java", "per_page": n}
 
@@ -40,9 +55,9 @@ def fetch_github_java(n):
             content = file_data.get("content")
             if content:
                 codes.append(base64.b64decode(content).decode("utf-8"))
-            time.sleep(1) 
+            time.sleep(1)
         except Exception as e:
-            print(f"Skipping file: {e}")
+            print(f"  Skipping file: {e}")
 
     return codes
 
@@ -51,7 +66,7 @@ def generate_codellama_java(n):
     codes = []
     for i in range(n):
         topic = TOPICS[i % len(TOPICS)]
-        prompt = f"Write a simple Java class for: {topic}. Max 20 lines. Code only."
+        prompt = f"Write a simple Java class for: {topic}. Max 40 lines. Return ONLY raw Java code, no markdown, no backticks."
 
         try:
             response = requests.post(OLLAMA_URL, json={
@@ -60,7 +75,8 @@ def generate_codellama_java(n):
                 "stream": False
             }, timeout=300)
             response.raise_for_status()
-            codes.append(response.json()["response"])
+            code = clean_code(response.json()["response"])
+            codes.append(code)
             print(f"  Ollama [{i+1}/{n}] {topic}")
         except Exception as e:
             print(f"  Ollama [{i+1}/{n}] {e}")
@@ -80,12 +96,14 @@ def main():
     ollama_codes = generate_codellama_java(ollama_count)
 
     all_codes = github_codes + ollama_codes
+    saved = 0
     for i, code in enumerate(all_codes):
-        path = f"{SAVE_DIR}/sample_{i+1}.java"
+        class_name = extract_class_name(code)
+        filename = f"{class_name}.java" if class_name else f"sample_{i+1}.java"
+        path = os.path.join(SAVE_DIR, filename)
         with open(path, "w", encoding="utf-8") as f:
             f.write(code)
-        print(f"Saved {path}")
+        print(f"  Saved {filename}")
+        saved += 1
 
-    print(f"\n {len(all_codes)} Java files saved to '{SAVE_DIR}/'")
-
-
+    print(f"\n{saved} Java files saved to '{SAVE_DIR}/'")

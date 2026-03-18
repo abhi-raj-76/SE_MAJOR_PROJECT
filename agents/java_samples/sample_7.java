@@ -1,33 +1,16 @@
-```
-public class Animal {
-    private String name;
-    private int age;
-
-    public Animal(String name, int age) {
-        this.name = name;
-        this.age = age;
-    }
-
-    public void speak() {
-        System.out.println("The " + name + " says: " + getSound());
-    }
-
-    protected String getSound() {
-        return "Unknown sound";
+class Solution {
+    public String convert(String s, int numRows) {
+        if(numRows < 2) return s;
+        List<StringBuilder> rows = new ArrayList<StringBuilder>();
+        for(int i = 0; i < numRows; i++) rows.add(new StringBuilder());
+        int i = 0, flag = -1;
+        for(char c : s.toCharArray()) {
+            rows.get(i).append(c);
+            if(i == 0 || i == numRows -1) flag = - flag;
+            i += flag;
+        }
+        StringBuilder res = new StringBuilder();
+        for(StringBuilder row : rows) res.append(row);
+        return res.toString();
     }
 }
-
-public class Dog extends Animal {
-    @Override
-    protected String getSound() {
-        return "Woof!";
-    }
-}
-
-public class Cat extends Animal {
-    @Override
-    protected String getSound() {
-        return "Meow!";
-    }
-}
-```
