@@ -10,6 +10,11 @@ TEST_DIR = "test_samples"
 
 os.makedirs(TEST_DIR, exist_ok=True)
 
+REQUIRED_IMPORTS = [
+    "import org.junit.jupiter.api.Test;",
+    "import static org.junit.jupiter.api.Assertions.*;",
+]
+
 
 def clean_code(response):
     """Strip markdown backticks from LLM response."""
@@ -37,6 +42,30 @@ def extract_class_info(java_code):
     return class_name, method_list
 
 
+def extract_method_names(methods):
+    method_names = []
+    for signature in methods:
+        match = re.search(r"\b(\w+)\s*\(", signature)
+        if match:
+            method_names.append(match.group(1))
+    return method_names
+
+
+def ensure_junit5_imports(test_code):
+    lines = [line for line in test_code.splitlines() if line.strip()]
+    remaining_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped in REQUIRED_IMPORTS:
+            continue
+        if stripped.startswith("import org.junit.") or stripped.startswith("import static org.junit."):
+            continue
+        remaining_lines.append(line)
+
+    return "\n".join(REQUIRED_IMPORTS + [""] + remaining_lines).strip() + "\n"
+
+
 def generate_test_case(java_code, class_name, methods):
     method_info = "\n".join(f"  - {m}" for m in methods) if methods else "  - (only main method found)"
 
@@ -50,12 +79,19 @@ Rules (STRICTLY FOLLOW):
 - Return ONLY raw Java code
 - NO markdown, NO backticks, NO explanations
 - Start directly with import statements
+- The imports must include:
+  import org.junit.jupiter.api.Test;
+  import static org.junit.jupiter.api.Assertions.*;
 - Test class name must be: {class_name}Test
 - Only test methods that actually exist in the source
+- Do NOT call methods that are not listed under "Available public methods"
 - Use @Test annotation for each test method
 - Add import java.util.Scanner; only if Scanner is used in source
-- Do NOT use Scanner in tests — pass values directly to methods
-- If class only has main(), write a simple smoke test using System.out
+- Do NOT use Scanner in tests; pass values directly to methods
+- Use JUnit 5 only; never use org.junit.Test or org.junit.Assert
+- Prefer simple, compile-safe tests over complex tests
+- If class only has main(), write a minimal smoke test
+- If no public methods are available, only test object creation or basic non-null behavior
 
 Java Source Code:
 {java_code}
@@ -69,21 +105,41 @@ Java Source Code:
         )
         response.raise_for_status()
         raw = response.json().get("response", "")
-        return clean_code(raw)
+        return ensure_junit5_imports(clean_code(raw))
 
     except Exception as e:
         print(f"  Error: {e}")
         return ""
 
 
-def validate_test_code(test_code, class_name):
+def validate_test_code(test_code, class_name, method_names):
     """Basic validation — check test class exists and no backticks."""
     if '`' in test_code:
         return False, "backticks found"
+    if "import org.junit.jupiter.api.Test;" not in test_code:
+        return False, "missing JUnit 5 Test import"
+    if "import static org.junit.jupiter.api.Assertions.*;" not in test_code:
+        return False, "missing JUnit 5 assertions import"
+    if "org.junit.Test" in test_code or "org.junit.Assert" in test_code:
+        return False, "uses JUnit 4 imports"
     if f"class {class_name}Test" not in test_code:
         return False, f"missing class {class_name}Test"
     if "@Test" not in test_code:
         return False, "no @Test annotations"
+    called_methods = re.findall(
+        rf"\.\s*(\w+)\s*\(",
+        test_code,
+    )
+    invalid_calls = sorted(
+        set(
+            method_name for method_name in called_methods
+            if method_name not in method_names
+            and method_name not in {"equals", "hashCode", "toString", "getClass", "intValue"}
+            and method_name != class_name
+        )
+    )
+    if invalid_calls and method_names:
+        return False, f"calls unknown methods: {', '.join(invalid_calls)}"
     return True, "ok"
 
 
@@ -112,6 +168,7 @@ def main():
 
         # Extract class name and methods
         class_name, methods = extract_class_info(java_code)
+        method_names = extract_method_names(methods)
         test_filename = f"{class_name}Test.java"
         test_path = os.path.join(TEST_DIR, test_filename)
 
@@ -130,11 +187,11 @@ def main():
             continue
 
         # Validate
-        valid, reason = validate_test_code(test_code, class_name)
+        valid, reason = validate_test_code(test_code, class_name, method_names)
         if not valid:
             print(f"Invalid ({reason}) — retrying...")
             test_code = generate_test_case(java_code, class_name, methods)
-            valid, reason = validate_test_code(test_code, class_name)
+            valid, reason = validate_test_code(test_code, class_name, method_names)
             if not valid:
                 print(f"Retry failed ({reason})")
                 failed += 1

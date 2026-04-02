@@ -1,0 +1,6 @@
+.vscode
+agents/build
+agents/__pycache__
+agents/java_samples
+agents/test_samples
+.env
