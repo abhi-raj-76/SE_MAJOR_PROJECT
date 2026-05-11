@@ -25,6 +25,10 @@ import subprocess
 import csv
 import random
 import urllib.request
+import json
+import signal
+import multiprocessing
+from datetime import datetime
 from defect_rules import DEFECT_LABELS, build_defect_label_columns
 
 SOURCE_DIR  = "java_samples"
@@ -37,6 +41,13 @@ BUILD_DIR   = "build"
 MANIFEST_CSV = "sample_manifest.csv"
 TRAIN_RATIO = 0.8
 RANDOM_SEED = 42
+PROGRESS_FILE = "defect_analyzer_progress.json"
+SKIPPED_FILE = "defect_analyzer_skipped.csv"
+COMPILE_TIMEOUT_SEC = 30
+RUN_TIMEOUT_SEC = 15
+TEST_COMPILE_TIMEOUT_SEC = 30
+JUNIT_TIMEOUT_SEC = 30
+PER_FILE_TIMEOUT_SEC = 90
 
 JUNIT_JAR_URL = (
     "https://repo1.maven.org/maven2/org/junit/platform/"
@@ -208,11 +219,16 @@ def run_cmd(cmd, timeout=30):
         return -1, "", "Timed out"
     except FileNotFoundError as e:
         return -1, "", str(e)
+    except Exception as e:
+        return -1, "", f"Unexpected error: {str(e)}"
 
 
 def compile_source(filepath):
     out_dir = os.path.join(BUILD_DIR, "classes")
-    rc, stdout, stderr = run_cmd(["javac", "-d", out_dir, filepath])
+    rc, stdout, stderr = run_cmd(
+        ["javac", "-d", out_dir, filepath],
+        timeout=COMPILE_TIMEOUT_SEC
+    )
     output   = stderr + stdout
     errors   = len(re.findall(r'\berror:', output))
     warnings = len(re.findall(r'\bwarning:', output))
@@ -222,14 +238,25 @@ def compile_source(filepath):
 def run_source(class_name):
     classes_dir = os.path.join(BUILD_DIR, "classes")
     rc, stdout, stderr = run_cmd(
-        ["java", "-cp", classes_dir, class_name], timeout=10
+        ["java", "-cp", classes_dir, class_name], timeout=RUN_TIMEOUT_SEC
     )
     output = stderr + stdout
-    exceptions = re.findall(
-        r'(java\.[\w.]+(?:Exception|Error)|Exception in thread)', output
+    uncaught_events = re.findall(
+        r'^Exception in thread "[^"]+"\s+([\w.$]+)',
+        output,
+        flags=re.MULTILINE,
     )
-    ex_types = sorted(set(exceptions))
-    return len(exceptions), ex_types, output
+    if uncaught_events:
+        ex_types = sorted(set(uncaught_events))
+        return len(uncaught_events), ex_types, output
+
+    fallback_types = re.findall(
+        r'\b(java\.[\w.$]+(?:Exception|Error))\b',
+        output,
+        flags=re.MULTILINE,
+    )
+    ex_types = sorted(set(fallback_types))
+    return len(ex_types), ex_types, output
 
 
 def compile_test(test_filepath):
@@ -241,7 +268,8 @@ def compile_test(test_filepath):
     classpath = f"{src_cp}{os.pathsep}{JUNIT_JAR}"
 
     rc, stdout, stderr = run_cmd(
-        ["javac", "-cp", classpath, "-d", test_out, test_filepath]
+        ["javac", "-cp", classpath, "-d", test_out, test_filepath],
+        timeout=TEST_COMPILE_TIMEOUT_SEC
     )
     output   = stderr + stdout
     errors   = len(re.findall(r'\berror:', output))
@@ -261,22 +289,24 @@ def run_tests(test_class_name):
         "--class-path", classpath,
         "--select-class", test_class_name,
         "--details", "summary"
-    ], timeout=30)
+    ], timeout=JUNIT_TIMEOUT_SEC)
 
     output = stdout + stderr
 
     passed = 0
     failed = 0
-    m = re.search(r'\[(\d+)\] tests successful', output)
+    # Match format: [        10 tests successful      ]
+    m = re.search(r'\[\s*(\d+)\s+tests\s+successful\s*\]', output)
     if m:
         passed = int(m.group(1))
-    m = re.search(r'\[(\d+)\] tests failed', output)
+    m = re.search(r'\[\s*(\d+)\s+tests\s+failed\s*\]', output)
     if m:
         failed = int(m.group(1))
 
     if passed == 0 and failed == 0:
-        passed = len(re.findall(r'\bPASSED\b', output))
-        failed = len(re.findall(r'\bFAILED\b|\bABORTED\b', output))
+        # Fallback: count lines mentioning tests
+        passed = len(re.findall(r'tests\s+successful', output))
+        failed = len(re.findall(r'tests\s+failed', output))
 
     return passed, failed, passed + failed, output
 
@@ -352,83 +382,150 @@ def determine_test_status(test_exists, test_compiled, tests_total, junit_output)
 
 def analyze_file(source_path, manifest_map):
     filename = os.path.basename(source_path)
+    
+    try:
+        with open(source_path, "r", encoding="utf-8", errors="ignore") as f:
+            code = f.read()
+    except Exception as e:
+        return create_error_result(filename, f"Failed to read file: {str(e)}")
+    
+    try:
+        class_name = extract_class_name(code, os.path.splitext(filename)[0])
+        metrics    = extract_static_metrics(code)
+        interactive_program = is_interactive_program(code)
+        defect_label_columns = build_defect_label_columns(code)
+        manifest_row = manifest_map.get(filename, {})
+        source_origin = infer_origin(filename, manifest_row)
+        source_topic = manifest_row.get("source_topic", "")
 
-    with open(source_path, "r", encoding="utf-8", errors="ignore") as f:
-        code = f.read()
+        # 1. Compile source
+        src_ok, src_err, src_warn, src_out = compile_source(source_path)
+        if "Timed out" in src_out:
+            return create_error_result(
+                filename,
+                f"Timed out during source compile ({COMPILE_TIMEOUT_SEC}s)",
+                defect_type="source_compile",
+            )
 
-    class_name = extract_class_name(code, os.path.splitext(filename)[0])
-    metrics    = extract_static_metrics(code)
-    interactive_program = is_interactive_program(code)
-    defect_label_columns = build_defect_label_columns(code)
-    manifest_row = manifest_map.get(filename, {})
-    source_origin = infer_origin(filename, manifest_row)
-    source_topic = manifest_row.get("source_topic", "")
+        # 2. Run source
+        rt_count, ex_types, run_out = (0, [], "")
+        runtime_attempted = metrics["has_main_method"] and src_ok and not interactive_program
+        if runtime_attempted:
+            rt_count, ex_types, run_out = run_source(class_name)
+            if "Timed out" in run_out:
+                return create_error_result(
+                    filename,
+                    f"Timed out during source run ({RUN_TIMEOUT_SEC}s)",
+                    defect_type="runtime",
+                )
 
-    # 1. Compile source
-    src_ok, src_err, src_warn, src_out = compile_source(source_path)
+        # 3. Compile test
+        test_path = os.path.join(TEST_DIR, f"{class_name}Test.java")
+        test_exists = os.path.exists(test_path)
+        t_ok, t_err, t_warn, t_out = compile_test(test_path)
+        if "Timed out" in t_out:
+            return create_error_result(
+                filename,
+                f"Timed out during test compile ({TEST_COMPILE_TIMEOUT_SEC}s)",
+                defect_type="test_compile",
+            )
 
-    # 2. Run source
-    rt_count, ex_types, run_out = (0, [], "")
-    runtime_attempted = metrics["has_main_method"] and src_ok and not interactive_program
-    if runtime_attempted:
-        rt_count, ex_types, run_out = run_source(class_name)
+        # 4. Run JUnit
+        passed, failed, total_tests, junit_out = (0, 0, 0, "")
+        if test_exists and t_ok:
+            passed, failed, total_tests, junit_out = run_tests(f"{class_name}Test")
+            if "Timed out" in junit_out:
+                return create_error_result(
+                    filename,
+                    f"Timed out during JUnit run ({JUNIT_TIMEOUT_SEC}s)",
+                    defect_type="test_failure",
+                )
 
-    # 3. Compile test
-    test_path = os.path.join(TEST_DIR, f"{class_name}Test.java")
-    test_exists = os.path.exists(test_path)
-    t_ok, t_err, t_warn, t_out = compile_test(test_path)
+        test_status = determine_test_status(test_exists, t_ok, total_tests, junit_out)
 
-    # 4. Run JUnit
-    passed, failed, total_tests, junit_out = (0, 0, 0, "")
-    if test_exists and t_ok:
-        passed, failed, total_tests, junit_out = run_tests(f"{class_name}Test")
+        # Defect density
+        total_defects  = src_err + rt_count + t_err + failed
+        density        = round((total_defects / metrics["loc"]) * 1000, 2)
+        density_grade  = classify_density(density)
+        is_defective   = classify_binary_defect(total_defects)
+        defect_types   = classify_error_types(src_err, rt_count, t_err, failed)
 
-    test_status = determine_test_status(test_exists, t_ok, total_tests, junit_out)
+        return {
+            "file":                filename,
+            "class_name":          class_name,
+            "source_origin":       source_origin,
+            "source_topic":        source_topic,
+            **metrics,
+            **defect_label_columns,
+            "is_interactive_program": interactive_program,
 
-    # Defect density
-    total_defects  = src_err + rt_count + t_err + failed
-    density        = round((total_defects / metrics["loc"]) * 1000, 2)
-    density_grade  = classify_density(density)
-    is_defective   = classify_binary_defect(total_defects)
-    defect_types   = classify_error_types(src_err, rt_count, t_err, failed)
+            "src_compiled":        src_ok,
+            "src_compile_errors":  src_err,
+            "src_warnings":        src_warn,
+            "runtime_attempted":   runtime_attempted,
+            "runtime_errors":      rt_count,
+            "exception_types":     ex_types,
 
-    return {
-        "file":                filename,
-        "class_name":          class_name,
-        "source_origin":       source_origin,
-        "source_topic":        source_topic,
-        **metrics,
-        **defect_label_columns,
-        "is_interactive_program": interactive_program,
+            "test_exists":         test_exists,
+            "test_compiled":       t_ok,
+            "test_compile_errors": t_err,
+            "test_warnings":       t_warn,
+            "tests_passed":        passed,
+            "tests_failed":        failed,
+            "tests_total":         total_tests,
+            "test_status":         test_status,
 
-        "src_compiled":        src_ok,
-        "src_compile_errors":  src_err,
-        "src_warnings":        src_warn,
-        "runtime_attempted":   runtime_attempted,
-        "runtime_errors":      rt_count,
-        "exception_types":     ex_types,
+            "total_defects":       total_defects,
+            "defect_density":      density,
+            "density_grade":       density_grade,
+            "is_defective":        is_defective,
+            "defect_types":        defect_types,
 
-        "test_exists":         test_exists,
-        "test_compiled":       t_ok,
-        "test_compile_errors": t_err,
-        "test_warnings":       t_warn,
-        "tests_passed":        passed,
-        "tests_failed":        failed,
-        "tests_total":         total_tests,
-        "test_status":         test_status,
+            # raw outputs for debugging
+            "src_compile_out":     src_out[:400],
+            "runtime_out":         run_out[:400],
+            "test_compile_out":    t_out[:400],
+            "junit_out":           junit_out[:400],
+        }
+    except Exception as e:
+        return create_error_result(filename, f"Analysis failed: {str(e)}")
 
-        "total_defects":       total_defects,
-        "defect_density":      density,
-        "density_grade":       density_grade,
-        "is_defective":        is_defective,
-        "defect_types":        defect_types,
 
-        # raw outputs for debugging
-        "src_compile_out":     src_out[:400],
-        "runtime_out":         run_out[:400],
-        "test_compile_out":    t_out[:400],
-        "junit_out":           junit_out[:400],
-    }
+def _analyze_worker(source_path, manifest_map, queue):
+    try:
+        queue.put(("ok", analyze_file(source_path, manifest_map)))
+    except Exception as e:
+        queue.put(("error", str(e)))
+
+
+def analyze_file_with_timeout(source_path, manifest_map, timeout_sec=PER_FILE_TIMEOUT_SEC):
+    queue = multiprocessing.Queue()
+    process = multiprocessing.Process(
+        target=_analyze_worker,
+        args=(source_path, manifest_map, queue),
+    )
+    process.start()
+    process.join(timeout_sec)
+
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        filename = os.path.basename(source_path)
+        reason = f"Timed out: file analysis exceeded {timeout_sec}s"
+        return create_error_result(filename, reason, defect_type="runtime"), reason
+
+    if queue.empty():
+        filename = os.path.basename(source_path)
+        reason = "Analyzer process exited without producing a result"
+        return create_error_result(filename, reason), reason
+
+    status, payload = queue.get()
+    if status == "ok":
+        return payload, None
+
+    filename = os.path.basename(source_path)
+    reason = f"Analyzer worker failed: {payload}"
+    return create_error_result(filename, reason), reason
 
 
 def export_csv(path, rows, fields):
@@ -453,10 +550,81 @@ def split_dataset(rows, train_ratio=TRAIN_RATIO, seed=RANDOM_SEED):
     split_index = min(split_index, len(shuffled) - 1)
     return shuffled[:split_index], shuffled[split_index:]
 
+def create_error_result(filename, error_msg, defect_type="source_compile"):
+    """Create a result object for files that failed analysis"""
+    src_compile_errors = 1 if defect_type == "source_compile" else 0
+    runtime_errors = 1 if defect_type == "runtime" else 0
+    test_compile_errors = 1 if defect_type == "test_compile" else 0
+    tests_failed = 1 if defect_type == "test_failure" else 0
+    total_defects = src_compile_errors + runtime_errors + test_compile_errors + tests_failed
+    defect_types = classify_error_types(
+        src_compile_errors, runtime_errors, test_compile_errors, tests_failed
+    )
+
+    return {
+        "file": filename,
+        "class_name": os.path.splitext(filename)[0],
+        "source_origin": "unknown",
+        "source_topic": "",
+        "loc": 0, "total_lines": 0, "blank_lines": 0, "comment_lines": 0,
+        "class_count": 0, "method_count": 0, "field_count": 0, "import_count": 0,
+        "if_count": 0, "loop_count": 0, "switch_count": 0, "catch_count": 0,
+        "throw_count": 0, "return_count": 0, "public_method_count": 0,
+        "static_method_count": 0, "has_main_method": False, "max_nesting_depth": 0,
+        "cyclomatic_estimate": 0, "avg_method_loc": 0, "comment_ratio": 0,
+        **{label: 0 for label in DEFECT_LABELS},
+        "is_interactive_program": False,
+        "src_compiled": False, "src_compile_errors": src_compile_errors, "src_warnings": 0,
+        "runtime_attempted": defect_type == "runtime", "runtime_errors": runtime_errors, "exception_types": [],
+        "test_exists": defect_type in {"test_compile", "test_failure"},
+        "test_compiled": defect_type != "test_compile",
+        "test_compile_errors": test_compile_errors,
+        "test_warnings": 0, "tests_passed": 0, "tests_failed": tests_failed, "tests_total": tests_failed,
+        "test_status": "analysis_failed",
+        "total_defects": total_defects, "defect_density": 0, "density_grade": "Low",
+        "is_defective": classify_binary_defect(total_defects), "defect_types": defect_types,
+        "src_compile_out": error_msg[:400], "runtime_out": "", "test_compile_out": "", "junit_out": ""
+    }
+
+
+def save_progress(processed_files, skipped_files, current_index):
+    """Save current progress to resume later"""
+    progress = {
+        "timestamp": datetime.now().isoformat(),
+        "processed_files": processed_files,
+        "skipped_files": skipped_files,
+        "current_index": current_index,
+        "total_processed": len(processed_files)
+    }
+    with open(PROGRESS_FILE, "w") as f:
+        json.dump(progress, f, indent=2)
+
+
+def load_progress():
+    """Load previous progress if exists"""
+    if os.path.exists(PROGRESS_FILE):
+        try:
+            with open(PROGRESS_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return None
+    return None
+
+
+def log_skipped_file(filename, reason):
+    """Log skipped files for later review"""
+    with open(SKIPPED_FILE, "a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([datetime.now().isoformat(), filename, reason])
+
+
 def main():
     setup()
     manifest_map = load_manifest()
-
+    
+    # Load previous progress
+    progress = load_progress()
+    
     java_files = sorted([
         os.path.join(SOURCE_DIR, f)
         for f in os.listdir(SOURCE_DIR) if f.endswith(".java")
@@ -465,6 +633,19 @@ def main():
     if not java_files:
         print(f"No Java files found in '{SOURCE_DIR}/'")
         return
+
+    # Determine starting point
+    start_index = 0
+    processed_files = []
+    skipped_files = []
+    
+    if progress:
+        start_index = progress.get("current_index", 0)
+        processed_files = progress.get("processed_files", [])
+        skipped_files = progress.get("skipped_files", [])
+        print(f"Resuming from file {start_index+1}/{len(java_files)}")
+        print(f"Previously processed: {len(processed_files)} files")
+        print(f"Previously skipped: {len(skipped_files)} files")
 
     print(f"\n{'='*100}")
     print(f"  Defect Density Analyzer and Dataset Builder - {len(java_files)} files")
@@ -475,13 +656,11 @@ def main():
     )
     print(f"  {'-'*98}")
 
-    results = []
+    results = processed_files  # Load previously processed results
     T = dict(loc=0, ce=0, re=0, tce=0, passed=0, failed=0, defects=0)
-
-    for fp in java_files:
-        r = analyze_file(fp, manifest_map)
-        results.append(r)
-
+    
+    # Recalculate totals from processed files
+    for r in results:
         T["loc"]     += r["loc"]
         T["ce"]      += r["src_compile_errors"]
         T["re"]      += r["runtime_errors"]
@@ -490,13 +669,87 @@ def main():
         T["failed"]  += r["tests_failed"]
         T["defects"] += r["total_defects"]
 
-        print(
-            f"  {r['file']:<28} {r['source_origin']:<8} {r['loc']:>4} "
-            f"{r['src_compile_errors']:>4} {r['runtime_errors']:>4} "
-            f"{r['test_compile_errors']:>4} {r['tests_passed']:>5} "
-            f"{r['tests_failed']:>5} {r['total_defects']:>4} "
-            f"{r['defect_density']:>8}/KLOC  {r['test_status']}"
-        )
+    # Process remaining files
+    for i in range(start_index, len(java_files)):
+        fp = java_files[i]
+        filename = os.path.basename(fp)
+        
+        try:
+            print(f"\nProcessing {i+1}/{len(java_files)}: {filename}", end=" ... ", flush=True)
+            
+            r, timeout_reason = analyze_file_with_timeout(fp, manifest_map)
+            if timeout_reason:
+                print(f"SKIPPED - {timeout_reason}")
+                log_skipped_file(filename, timeout_reason)
+                skipped_files.append(filename)
+                results.append(r)
+                T["loc"]     += r["loc"]
+                T["ce"]      += r["src_compile_errors"]
+                T["re"]      += r["runtime_errors"]
+                T["tce"]     += r["test_compile_errors"]
+                T["passed"]  += r["tests_passed"]
+                T["failed"]  += r["tests_failed"]
+                T["defects"] += r["total_defects"]
+                save_progress(results, skipped_files, i + 1)
+                continue
+            
+            # Check if analysis failed catastrophically
+            if r.get("test_status") == "analysis_failed":
+                print(f"SKIPPED - {r['src_compile_out'][:100]}")
+                log_skipped_file(filename, r["src_compile_out"])
+                skipped_files.append(filename)
+                results.append(r)
+                T["loc"]     += r["loc"]
+                T["ce"]      += r["src_compile_errors"]
+                T["re"]      += r["runtime_errors"]
+                T["tce"]     += r["test_compile_errors"]
+                T["passed"]  += r["tests_passed"]
+                T["failed"]  += r["tests_failed"]
+                T["defects"] += r["total_defects"]
+                save_progress(results, skipped_files, i + 1)
+                continue
+            
+            results.append(r)
+            
+            # Update totals
+            T["loc"]     += r["loc"]
+            T["ce"]      += r["src_compile_errors"]
+            T["re"]      += r["runtime_errors"]
+            T["tce"]     += r["test_compile_errors"]
+            T["passed"]  += r["tests_passed"]
+            T["failed"]  += r["tests_failed"]
+            T["defects"] += r["total_defects"]
+
+            print(f"OK {r['tests_passed']}/{r['tests_total']} tests")
+            
+            # Print summary line
+            print(
+                f"  {r['file']:<28} {r['source_origin']:<8} {r['loc']:>4} "
+                f"{r['src_compile_errors']:>4} {r['runtime_errors']:>4} "
+                f"{r['test_compile_errors']:>4} {r['tests_passed']:>5} "
+                f"{r['tests_failed']:>5} {r['total_defects']:>4} "
+                f"{r['defect_density']:>8}/KLOC  {r['test_status']}"
+            )
+            
+            # Save progress every 5 files
+            if (i + 1) % 5 == 0:
+                save_progress(results, skipped_files, i + 1)
+                print(f"Progress saved at file {i+1}")
+                
+        except KeyboardInterrupt:
+            print(f"\n\nInterrupted by user. Saving progress...")
+            save_progress(results, skipped_files, i)
+            print(f"Progress saved. Resume later to continue from file {i+1}.")
+            return
+        except Exception as e:
+            print(f"ERROR: {str(e)}")
+            log_skipped_file(filename, f"Unexpected error: {str(e)}")
+            skipped_files.append(filename)
+            save_progress(results, skipped_files, i)
+            continue
+
+    # Final save
+    save_progress(results, skipped_files, len(java_files))
 
     overall = round((T["defects"] / max(T["loc"], 1)) * 1000, 2)
     train_rows, test_rows = split_dataset(results)
@@ -504,6 +757,7 @@ def main():
     print(f"\n{'='*100}")
     print(f"  SUMMARY")
     print(f"  Total Files            : {len(results)}")
+    print(f"  Skipped Files          : {len(skipped_files)}")
     print(f"  Total LOC              : {T['loc']}")
     print(f"  Source Compile Errors  : {T['ce']}")
     print(f"  Runtime Errors         : {T['re']}")
@@ -517,6 +771,7 @@ def main():
     print(f"  Test Rows              : {len(test_rows)}")
     print(f"{'='*100}\n")
 
+    # Export reports
     report_fields = [
         "file", "class_name", "source_origin", "source_topic", "loc",
         "is_interactive_program",
@@ -554,7 +809,14 @@ def main():
     print(f"    {REPORT_CSV}")
     print(f"    {DATASET_CSV}")
     print(f"    {TRAIN_CSV}")
-    print(f"    {TEST_CSV}\n")
+    print(f"    {TEST_CSV}")
+    if skipped_files:
+        print(f"    {SKIPPED_FILE} (review skipped files)")
+    print(f"    {PROGRESS_FILE} (resume checkpoint)\n")
+    
+    # Clean up progress file on successful completion
+    if os.path.exists(PROGRESS_FILE):
+        os.remove(PROGRESS_FILE)
 
 
 if __name__ == "__main__":

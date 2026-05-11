@@ -15,7 +15,7 @@ if not GITHUB_TOKEN:
 
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"}
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "codellama:7b"
+MODEL = "qwen2.5-coder:1.5b"
 SAVE_DIR = "java_samples"
 MANIFEST_JSON = "sample_manifest.json"
 MANIFEST_CSV = "sample_manifest.csv"

@@ -105,20 +105,20 @@ def build_feature_row(code):
 
 def make_prediction(row, model_bundle, model_metrics):
     if isinstance(model_bundle, dict):
-        feature_names = model_bundle.get("features") or model_metrics.get("features", [])
-    else:
-        feature_names = model_metrics.get("features", [])
-    feature_frame = pd.DataFrame([row])
-    feature_frame = feature_frame.reindex(columns=feature_names)
-
-    if isinstance(model_bundle, dict):
+        target_feature_map = model_bundle.get("features", {})
+        fallback_features = model_metrics.get("features", [])
+        overall_feature_names = target_feature_map.get("is_defective", fallback_features)
         overall_pipeline = model_bundle["targets"]["is_defective"]["pipeline"]
     else:
+        target_feature_map = {}
+        overall_feature_names = model_metrics.get("features", [])
         overall_pipeline = model_bundle
-    predicted_label = int(overall_pipeline.predict(feature_frame)[0])
+
+    overall_feature_frame = pd.DataFrame([row]).reindex(columns=overall_feature_names)
+    predicted_label = int(overall_pipeline.predict(overall_feature_frame)[0])
     probability = None
     if hasattr(overall_pipeline, "predict_proba"):
-        probabilities = overall_pipeline.predict_proba(feature_frame)
+        probabilities = overall_pipeline.predict_proba(overall_feature_frame)
         if getattr(probabilities, "shape", (0, 0))[1] >= 2:
             probability = float(probabilities[0][1])
         elif getattr(probabilities, "shape", (0, 0))[1] == 1:
@@ -131,10 +131,12 @@ def make_prediction(row, model_bundle, model_metrics):
             if not target_model_info:
                 continue
             pipeline = target_model_info["pipeline"]
-            predicted = int(pipeline.predict(feature_frame)[0])
+            target_feature_names = target_feature_map.get(defect_label, overall_feature_names)
+            target_feature_frame = pd.DataFrame([row]).reindex(columns=target_feature_names)
+            predicted = int(pipeline.predict(target_feature_frame)[0])
             predicted_probability = None
             if hasattr(pipeline, "predict_proba"):
-                probabilities = pipeline.predict_proba(feature_frame)
+                probabilities = pipeline.predict_proba(target_feature_frame)
                 if getattr(probabilities, "shape", (0, 0))[1] >= 2:
                     predicted_probability = float(probabilities[0][1])
                 elif getattr(probabilities, "shape", (0, 0))[1] == 1:
@@ -154,19 +156,38 @@ def make_prediction(row, model_bundle, model_metrics):
 def render_page(result=None, error_message=""):
     result_html = ""
     if result:
+        label_to_text = {
+            "has_unchecked_division": "Possible unchecked division (zero-division risk)",
+            "has_array_bounds_risk": "Possible array index out-of-bounds risk",
+            "has_null_handling_risk": "Weak null-handling pattern detected",
+            "has_possible_null_dereference": "Possible null dereference",
+            "has_swallowed_exception": "Exception may be swallowed/ignored",
+            "has_resource_leak_risk": "Possible resource leak (missing close/cleanup)",
+            "has_infinite_loop_risk": "Possible infinite loop pattern",
+            "has_unbounded_recursion_risk": "Possible unbounded recursion",
+            "has_missing_input_validation": "Possible missing input validation",
+        }
+
+        predicted_items = [
+            item for item in result.get("ml_defect_predictions", [])
+            if item.get("predicted") == 1
+        ]
+
         potential_items = ""
-        for item in result.get("ml_defect_predictions", []):
-            probability = (
-                f" ({item['probability']:.2%})"
-                if item["probability"] is not None
-                else ""
+        for item in predicted_items:
+            readable_label = label_to_text.get(item["label"], item["label"].replace("_", " "))
+            confidence = (
+                f"{item['probability']:.2%}" if item["probability"] is not None else "N/A"
             )
-            verdict = "Predicted" if item["predicted"] == 1 else "Not predicted"
             potential_items += (
-                f"<li><strong>{item['label']}</strong>: {verdict}{probability}"
-                f" using {item['model_name']}</li>"
+                f"<li><strong>{readable_label}</strong> "
+                f"(confidence: {confidence}, model: {item['model_name']})</li>"
             )
-        potential_html = f"<ul>{potential_items}</ul>" if potential_items else "<p>No ML defect-type predictions available.</p>"
+        potential_html = (
+            f"<ul>{potential_items}</ul>"
+            if potential_items
+            else "<p>No specific defect type was predicted for this code.</p>"
+        )
         probability_html = (
             f"<p><strong>Predicted defect probability:</strong> {result['probability']:.2%}</p>"
             if result["probability"] is not None

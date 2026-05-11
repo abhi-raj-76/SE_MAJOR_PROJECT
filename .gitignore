@@ -1,6 +1,82 @@
-.vscode
-agents/build
-agents/__pycache__
-agents/java_samples
-agents/test_samples
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+dist/
+build/
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+target/
+
+# Project Specific - Generated Data (Large/Auto-generated)
+agents/*.csv
+agents/*.json
+agents/*.txt
+!agents/sample_manifest.json
+agents/samples.txt
+agents/defect_analyzer_progress.json
+agents/defect_analyzer_skipped.csv
+
+# Build Artifacts
+agents/build/
+agents/__pycache__/
+
+# Model Artifacts (Large binary files - regenerate via training)
+agents/model_artifacts/*.joblib
+agents/model_artifacts/*.pkl
+agents/model_artifacts/*.h5
+
+# User Uploads (Runtime data)
+agents/prediction_inputs/*.java
+
+# Sensitive Data
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+config.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+

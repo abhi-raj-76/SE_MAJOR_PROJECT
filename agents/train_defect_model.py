@@ -23,6 +23,7 @@ METRICS_PATH = os.path.join(MODEL_DIR, "model_metrics.json")
 PREDICTIONS_PATH = os.path.join(MODEL_DIR, "test_predictions.csv")
 COMPARISON_PATH = os.path.join(MODEL_DIR, "model_comparison.json")
 RANDOM_SEED = 42
+BINARY_LABELS = [0, 1]
 
 TARGET_COLUMN = "is_defective"
 DROP_COLUMNS = [
@@ -33,6 +34,25 @@ DROP_COLUMNS = [
     "density_grade",
     "exception_types",
     *DEFECT_LABELS,
+]
+IS_DEFECTIVE_LEAKAGE_COLUMNS = [
+    "src_compile_errors",
+    "runtime_errors",
+    "test_compile_errors",
+    "tests_failed",
+    "total_defects",
+    "defect_density",
+]
+IS_DEFECTIVE_DYNAMIC_OUTCOME_COLUMNS = [
+    "src_compiled",
+    "src_warnings",
+    "runtime_attempted",
+    "test_exists",
+    "test_compiled",
+    "test_warnings",
+    "tests_passed",
+    "tests_total",
+    "test_status",
 ]
 
 
@@ -56,10 +76,15 @@ def ensure_datasets_exist():
     )
 
 
-def prepare_features(df):
+def prepare_features(df, target_name=TARGET_COLUMN):
     cleaned = df.copy()
+    drop_columns = list(DROP_COLUMNS)
+    if target_name == TARGET_COLUMN:
+        drop_columns.extend(IS_DEFECTIVE_LEAKAGE_COLUMNS)
+        drop_columns.extend(IS_DEFECTIVE_DYNAMIC_OUTCOME_COLUMNS)
+
     cleaned = cleaned.drop(
-        columns=[column for column in DROP_COLUMNS if column in cleaned.columns],
+        columns=[column for column in drop_columns if column in cleaned.columns],
         errors="ignore",
     )
 
@@ -182,10 +207,14 @@ def evaluate_pipeline(name, pipeline, X_test, y_test, test_df):
     metrics = {
         "model_name": name,
         "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
-        "confusion_matrix": confusion_matrix(y_test, y_pred).tolist(),
+        "confusion_matrix": confusion_matrix(
+            y_test, y_pred, labels=BINARY_LABELS
+        ).tolist(),
         "classification_report": classification_report(
             y_test,
             y_pred,
+            labels=BINARY_LABELS,
+            target_names=["0", "1"],
             output_dict=True,
             zero_division=0,
         ),
@@ -206,16 +235,17 @@ def model_sort_key(result):
     return (weighted_f1, accuracy)
 
 
+def format_accuracy_pct(value):
+    return f"{float(value) * 100:.2f}%"
+
+
 def main():
     os.makedirs(MODEL_DIR, exist_ok=True)
 
     train_df, test_df = ensure_datasets_exist()
-    X_train, y_train = prepare_features(train_df)
-    X_test, y_test = prepare_features(test_df)
-
     all_targets = [TARGET_COLUMN] + DEFECT_LABELS
     model_bundle = {
-        "features": X_train.columns.tolist(),
+        "features": {},
         "targets": {},
     }
     overall_metrics = {}
@@ -223,6 +253,8 @@ def main():
     best_predictions_df = test_df.copy()
 
     for target_name in all_targets:
+        X_train_target, _ = prepare_features(train_df, target_name=target_name)
+        X_test_target, _ = prepare_features(test_df, target_name=target_name)
         y_train_target = prepare_target(train_df, target_name)
         y_test_target = prepare_target(test_df, target_name)
         evaluation_results = []
@@ -230,12 +262,12 @@ def main():
 
         if len(unique_classes) < 2:
             constant_value = unique_classes[0]
-            pipeline = build_constant_pipeline(X_train, constant_value)
-            pipeline.fit(X_train, y_train_target)
+            pipeline = build_constant_pipeline(X_train_target, constant_value)
+            pipeline.fit(X_train_target, y_train_target)
             metrics, predictions_df = evaluate_pipeline(
                 "constant_baseline",
                 pipeline,
-                X_test,
+                X_test_target,
                 y_test_target,
                 test_df,
             )
@@ -252,13 +284,13 @@ def main():
                 }
             )
         else:
-            pipelines = build_model_pipelines(X_train)
+            pipelines = build_model_pipelines(X_train_target)
             for model_name, pipeline in pipelines.items():
-                pipeline.fit(X_train, y_train_target)
+                pipeline.fit(X_train_target, y_train_target)
                 metrics, predictions_df = evaluate_pipeline(
                     model_name,
                     pipeline,
-                    X_test,
+                    X_test_target,
                     y_test_target,
                     test_df,
                 )
@@ -276,15 +308,22 @@ def main():
             "best_model_name": best_result["model_name"],
             "pipeline": best_result["pipeline"],
         }
+        model_bundle["features"][target_name] = X_train_target.columns.tolist()
 
         overall_metrics[target_name] = {
             "best_model": best_result["model_name"],
+            "feature_count": int(X_train_target.shape[1]),
+            "features": X_train_target.columns.tolist(),
             **best_result["metrics"],
         }
+        overall_metrics[target_name]["accuracy_percent"] = format_accuracy_pct(
+            overall_metrics[target_name]["accuracy"]
+        )
         overall_comparison[target_name] = [
             {
                 "model_name": result["model_name"],
                 "accuracy": result["metrics"]["accuracy"],
+                "accuracy_percent": format_accuracy_pct(result["metrics"]["accuracy"]),
                 "classification_report": result["metrics"]["classification_report"],
                 "confusion_matrix": result["metrics"]["confusion_matrix"],
             }
@@ -297,16 +336,16 @@ def main():
     final_metrics = {
         "train_rows": int(len(train_df)),
         "test_rows": int(len(test_df)),
-        "feature_count": int(X_train.shape[1]),
-        "features": X_train.columns.tolist(),
+        "feature_count": int(len(model_bundle["features"].get(TARGET_COLUMN, []))),
+        "features": model_bundle["features"].get(TARGET_COLUMN, []),
         "targets": overall_metrics,
     }
 
     comparison = {
         "train_rows": int(len(train_df)),
         "test_rows": int(len(test_df)),
-        "feature_count": int(X_train.shape[1]),
-        "features": X_train.columns.tolist(),
+        "feature_count": int(len(model_bundle["features"].get(TARGET_COLUMN, []))),
+        "features": model_bundle["features"].get(TARGET_COLUMN, []),
         "targets": overall_comparison,
     }
 
@@ -323,9 +362,9 @@ def main():
     print("Model training complete")
     print(f"Train rows     : {len(train_df)}")
     print(f"Test rows      : {len(test_df)}")
-    print(f"Feature count  : {X_train.shape[1]}")
+    print(f"Feature count  : {len(model_bundle['features'][TARGET_COLUMN])}")
     print(f"Overall best   : {final_metrics['targets'][TARGET_COLUMN]['best_model']}")
-    print(f"Accuracy       : {final_metrics['targets'][TARGET_COLUMN]['accuracy']}")
+    print(f"Accuracy       : {final_metrics['targets'][TARGET_COLUMN]['accuracy_percent']}")
     print("Artifacts saved:")
     print(f"  {MODEL_PATH}")
     print(f"  {METRICS_PATH}")

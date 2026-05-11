@@ -3,7 +3,7 @@ import re
 import requests
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "codellama:7b"
+MODEL = "qwen2.5-coder:1.5b"
 
 SOURCE_DIR = "java_samples"
 TEST_DIR = "test_samples"
@@ -107,6 +107,9 @@ Java Source Code:
         raw = response.json().get("response", "")
         return ensure_junit5_imports(clean_code(raw))
 
+    except requests.exceptions.Timeout as e:
+        print(f"  Error: request timed out for {class_name}: {e}")
+        return ""
     except Exception as e:
         print(f"  Error: {e}")
         return ""
@@ -179,7 +182,12 @@ def main():
 
         print(f"  Generating test for {class_name} ({len(methods)} methods)...", end=" ")
 
-        test_code = generate_test_case(java_code, class_name, methods)
+        try:
+            test_code = generate_test_case(java_code, class_name, methods)
+        except Exception as e:
+            print(f"Unexpected failure ({e})")
+            failed += 1
+            continue
 
         if not test_code:
             print("Empty response")
@@ -190,7 +198,12 @@ def main():
         valid, reason = validate_test_code(test_code, class_name, method_names)
         if not valid:
             print(f"Invalid ({reason}) — retrying...")
-            test_code = generate_test_case(java_code, class_name, methods)
+            try:
+                test_code = generate_test_case(java_code, class_name, methods)
+            except Exception as e:
+                print(f"Retry crashed ({e})")
+                failed += 1
+                continue
             valid, reason = validate_test_code(test_code, class_name, method_names)
             if not valid:
                 print(f"Retry failed ({reason})")
