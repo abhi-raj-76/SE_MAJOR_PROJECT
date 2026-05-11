@@ -1,0 +1,859 @@
+{
+  "train_rows": 1108,
+  "test_rows": 277,
+  "feature_count": 23,
+  "features": [
+    "source_origin",
+    "total_lines",
+    "blank_lines",
+    "comment_lines",
+    "loc",
+    "class_count",
+    "method_count",
+    "field_count",
+    "import_count",
+    "if_count",
+    "loop_count",
+    "switch_count",
+    "catch_count",
+    "throw_count",
+    "return_count",
+    "public_method_count",
+    "static_method_count",
+    "has_main_method",
+    "max_nesting_depth",
+    "cyclomatic_estimate",
+    "avg_method_loc",
+    "comment_ratio",
+    "is_interactive_program"
+  ],
+  "targets": {
+    "is_defective": {
+      "best_model": "gradient_boosting",
+      "feature_count": 23,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program"
+      ],
+      "model_name": "gradient_boosting",
+      "accuracy": 0.6715,
+      "confusion_matrix": [
+        [
+          155,
+          24
+        ],
+        [
+          67,
+          31
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 0.6981981981981982,
+          "recall": 0.8659217877094972,
+          "f1-score": 0.773067331670823,
+          "support": 179.0
+        },
+        "1": {
+          "precision": 0.5636363636363636,
+          "recall": 0.3163265306122449,
+          "f1-score": 0.40522875816993464,
+          "support": 98.0
+        },
+        "accuracy": 0.6714801444043321,
+        "macro avg": {
+          "precision": 0.6309172809172809,
+          "recall": 0.5911241591608711,
+          "f1-score": 0.5891480449203788,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 0.6505914841654914,
+          "recall": 0.6714801444043321,
+          "f1-score": 0.6429294970026386,
+          "support": 277.0
+        }
+      },
+      "accuracy_percent": "67.15%"
+    },
+    "has_unchecked_division": {
+      "best_model": "gradient_boosting",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "gradient_boosting",
+      "accuracy": 1.0,
+      "confusion_matrix": [
+        [
+          277,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 277.0
+        },
+        "1": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1-score": 0.0,
+          "support": 0.0
+        },
+        "accuracy": 1.0,
+        "macro avg": {
+          "precision": 0.5,
+          "recall": 0.5,
+          "f1-score": 0.5,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 277.0
+        }
+      },
+      "accuracy_percent": "100.00%"
+    },
+    "has_array_bounds_risk": {
+      "best_model": "random_forest",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "random_forest",
+      "accuracy": 0.8592,
+      "confusion_matrix": [
+        [
+          220,
+          12
+        ],
+        [
+          27,
+          18
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 0.8906882591093117,
+          "recall": 0.9482758620689655,
+          "f1-score": 0.918580375782881,
+          "support": 232.0
+        },
+        "1": {
+          "precision": 0.6,
+          "recall": 0.4,
+          "f1-score": 0.48,
+          "support": 45.0
+        },
+        "accuracy": 0.8592057761732852,
+        "macro avg": {
+          "precision": 0.7453441295546559,
+          "recall": 0.6741379310344828,
+          "f1-score": 0.6992901878914405,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 0.8434645347052718,
+          "recall": 0.8592057761732852,
+          "f1-score": 0.8473308562513661,
+          "support": 277.0
+        }
+      },
+      "accuracy_percent": "85.92%"
+    },
+    "has_null_handling_risk": {
+      "best_model": "gradient_boosting",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "gradient_boosting",
+      "accuracy": 0.9892,
+      "confusion_matrix": [
+        [
+          274,
+          0
+        ],
+        [
+          3,
+          0
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 0.9891696750902527,
+          "recall": 1.0,
+          "f1-score": 0.9945553539019963,
+          "support": 274.0
+        },
+        "1": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1-score": 0.0,
+          "support": 3.0
+        },
+        "accuracy": 0.9891696750902527,
+        "macro avg": {
+          "precision": 0.49458483754512633,
+          "recall": 0.5,
+          "f1-score": 0.49727767695099817,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 0.9784566461181561,
+          "recall": 0.9891696750902527,
+          "f1-score": 0.983783996278509,
+          "support": 277.0
+        }
+      },
+      "accuracy_percent": "98.92%"
+    },
+    "has_possible_null_dereference": {
+      "best_model": "logistic_regression",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "logistic_regression",
+      "accuracy": 0.8123,
+      "confusion_matrix": [
+        [
+          174,
+          28
+        ],
+        [
+          24,
+          51
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 0.8787878787878788,
+          "recall": 0.8613861386138614,
+          "f1-score": 0.87,
+          "support": 202.0
+        },
+        "1": {
+          "precision": 0.6455696202531646,
+          "recall": 0.68,
+          "f1-score": 0.6623376623376623,
+          "support": 75.0
+        },
+        "accuracy": 0.8122743682310469,
+        "macro avg": {
+          "precision": 0.7621787495205217,
+          "recall": 0.7706930693069307,
+          "f1-score": 0.7661688311688312,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 0.8156421409174688,
+          "recall": 0.8122743682310469,
+          "f1-score": 0.8137737352899808,
+          "support": 277.0
+        }
+      },
+      "accuracy_percent": "81.23%"
+    },
+    "has_swallowed_exception": {
+      "best_model": "constant_baseline",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "constant_baseline",
+      "accuracy": 1.0,
+      "confusion_matrix": [
+        [
+          277,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 277.0
+        },
+        "1": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1-score": 0.0,
+          "support": 0.0
+        },
+        "accuracy": 1.0,
+        "macro avg": {
+          "precision": 0.5,
+          "recall": 0.5,
+          "f1-score": 0.5,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 277.0
+        }
+      },
+      "note": "Training data for has_swallowed_exception contained only one class (0), so a constant baseline model was used.",
+      "accuracy_percent": "100.00%"
+    },
+    "has_resource_leak_risk": {
+      "best_model": "constant_baseline",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "constant_baseline",
+      "accuracy": 1.0,
+      "confusion_matrix": [
+        [
+          277,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 277.0
+        },
+        "1": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1-score": 0.0,
+          "support": 0.0
+        },
+        "accuracy": 1.0,
+        "macro avg": {
+          "precision": 0.5,
+          "recall": 0.5,
+          "f1-score": 0.5,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 277.0
+        }
+      },
+      "note": "Training data for has_resource_leak_risk contained only one class (0), so a constant baseline model was used.",
+      "accuracy_percent": "100.00%"
+    },
+    "has_infinite_loop_risk": {
+      "best_model": "random_forest",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "random_forest",
+      "accuracy": 1.0,
+      "confusion_matrix": [
+        [
+          277,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 277.0
+        },
+        "1": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1-score": 0.0,
+          "support": 0.0
+        },
+        "accuracy": 1.0,
+        "macro avg": {
+          "precision": 0.5,
+          "recall": 0.5,
+          "f1-score": 0.5,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 277.0
+        }
+      },
+      "accuracy_percent": "100.00%"
+    },
+    "has_unbounded_recursion_risk": {
+      "best_model": "gradient_boosting",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "gradient_boosting",
+      "accuracy": 0.9603,
+      "confusion_matrix": [
+        [
+          260,
+          1
+        ],
+        [
+          10,
+          6
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 0.9629629629629629,
+          "recall": 0.9961685823754789,
+          "f1-score": 0.9792843691148776,
+          "support": 261.0
+        },
+        "1": {
+          "precision": 0.8571428571428571,
+          "recall": 0.375,
+          "f1-score": 0.5217391304347826,
+          "support": 16.0
+        },
+        "accuracy": 0.9602888086642599,
+        "macro avg": {
+          "precision": 0.91005291005291,
+          "recall": 0.6855842911877394,
+          "f1-score": 0.7505117497748302,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 0.9568506102802131,
+          "recall": 0.9602888086642599,
+          "f1-score": 0.95285576327054,
+          "support": 277.0
+        }
+      },
+      "accuracy_percent": "96.03%"
+    },
+    "has_missing_input_validation": {
+      "best_model": "gradient_boosting",
+      "feature_count": 38,
+      "features": [
+        "source_origin",
+        "total_lines",
+        "blank_lines",
+        "comment_lines",
+        "loc",
+        "class_count",
+        "method_count",
+        "field_count",
+        "import_count",
+        "if_count",
+        "loop_count",
+        "switch_count",
+        "catch_count",
+        "throw_count",
+        "return_count",
+        "public_method_count",
+        "static_method_count",
+        "has_main_method",
+        "max_nesting_depth",
+        "cyclomatic_estimate",
+        "avg_method_loc",
+        "comment_ratio",
+        "is_interactive_program",
+        "src_compiled",
+        "src_compile_errors",
+        "src_warnings",
+        "runtime_attempted",
+        "runtime_errors",
+        "test_exists",
+        "test_compiled",
+        "test_compile_errors",
+        "test_warnings",
+        "tests_passed",
+        "tests_failed",
+        "tests_total",
+        "test_status",
+        "total_defects",
+        "defect_density"
+      ],
+      "model_name": "gradient_boosting",
+      "accuracy": 0.8412,
+      "confusion_matrix": [
+        [
+          135,
+          18
+        ],
+        [
+          26,
+          98
+        ]
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 0.8385093167701864,
+          "recall": 0.8823529411764706,
+          "f1-score": 0.8598726114649682,
+          "support": 153.0
+        },
+        "1": {
+          "precision": 0.8448275862068966,
+          "recall": 0.7903225806451613,
+          "f1-score": 0.8166666666666667,
+          "support": 124.0
+        },
+        "accuracy": 0.8411552346570397,
+        "macro avg": {
+          "precision": 0.8416684514885415,
+          "recall": 0.8363377609108159,
+          "f1-score": 0.8382696390658174,
+          "support": 277.0
+        },
+        "weighted avg": {
+          "precision": 0.8413377117526848,
+          "recall": 0.8411552346570397,
+          "f1-score": 0.8405313220967754,
+          "support": 277.0
+        }
+      },
+      "accuracy_percent": "84.12%"
+    }
+  }
+}

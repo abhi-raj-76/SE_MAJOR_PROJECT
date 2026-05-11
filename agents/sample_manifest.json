@@ -1,0 +1,82 @@
+[
+  {
+    "file": "MediaPlayer.java",
+    "class_name": "MediaPlayer",
+    "source_origin": "github",
+    "source_topic": "",
+    "source_url": "https://github.com/Tejas1510/Hacking-Scripts/blob/a3153090c15b68f3ed9a0b1bf71afecd6a87b366/Java/Music%20Player/Music.java",
+    "github_api_url": "https://api.github.com/repositories/310305784/contents/Java/Music%20Player/Music.java?ref=a3153090c15b68f3ed9a0b1bf71afecd6a87b366"
+  },
+  {
+    "file": "Parctice01.java",
+    "class_name": "Parctice01",
+    "source_origin": "github",
+    "source_topic": "",
+    "source_url": "https://github.com/basicsstrong/java_interview_questions/blob/aa92a8d5615be68e166c43e7b06371312c0e4a95/Java8.java",
+    "github_api_url": "https://api.github.com/repositories/318430356/contents/Java8.java?ref=aa92a8d5615be68e166c43e7b06371312c0e4a95"
+  },
+  {
+    "file": "GreatestCommonDivisor.java",
+    "class_name": "GreatestCommonDivisor",
+    "source_origin": "github",
+    "source_topic": "",
+    "source_url": "https://github.com/txs72/BUPTJava/blob/bfabd434736cf02a6efc1148236839fa4503c7ac/v10/slides/06/examples/GreatestCommonDivisor.java",
+    "github_api_url": "https://api.github.com/repositories/46569013/contents/v10/slides/06/examples/GreatestCommonDivisor.java?ref=bfabd434736cf02a6efc1148236839fa4503c7ac"
+  },
+  {
+    "file": "sample_4.java",
+    "class_name": "sample_4",
+    "source_origin": "github",
+    "source_topic": "",
+    "source_url": "https://github.com/anxkhn/Java-Lab/blob/062c57eb88facf7f2011373566f89c73df428a96/Int1.java",
+    "github_api_url": "https://api.github.com/repositories/562362631/contents/Int1.java?ref=062c57eb88facf7f2011373566f89c73df428a96"
+  },
+  {
+    "file": "SandglassPattern.java",
+    "class_name": "SandglassPattern",
+    "source_origin": "github",
+    "source_topic": "",
+    "source_url": "https://github.com/ratnesh-maurya/Educational-Tech-Exploration/blob/fedf49fb5b445ed1ad18f2fa834e1ee8842d220c/java/Sandglass_star_pattern.java",
+    "github_api_url": "https://api.github.com/repositories/544107755/contents/java/Sandglass_star_pattern.java?ref=fedf49fb5b445ed1ad18f2fa834e1ee8842d220c"
+  },
+  {
+    "file": "SortingAlgorithms.java",
+    "class_name": "SortingAlgorithms",
+    "source_origin": "llm",
+    "source_topic": "sorting algorithms",
+    "source_url": "",
+    "github_api_url": ""
+  },
+  {
+    "file": "Animal.java",
+    "class_name": "Animal",
+    "source_origin": "llm",
+    "source_topic": "OOP inheritance",
+    "source_url": "",
+    "github_api_url": ""
+  },
+  {
+    "file": "Recursion.java",
+    "class_name": "Recursion",
+    "source_origin": "llm",
+    "source_topic": "recursion",
+    "source_url": "",
+    "github_api_url": ""
+  },
+  {
+    "file": "FileHandler.java",
+    "class_name": "FileHandler",
+    "source_origin": "llm",
+    "source_topic": "file handling",
+    "source_url": "",
+    "github_api_url": ""
+  },
+  {
+    "file": "Collections.java",
+    "class_name": "Collections",
+    "source_origin": "llm",
+    "source_topic": "collections",
+    "source_url": "",
+    "github_api_url": ""
+  }
+]
