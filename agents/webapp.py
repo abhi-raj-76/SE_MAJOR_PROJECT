@@ -2,10 +2,15 @@ import json
 import os
 from pathlib import Path
 
+from fastapi.staticfiles import StaticFiles
+
 import joblib
 import pandas as pd
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
+
+
+
 
 from defect_analyzer import (
     BUILD_DIR,
@@ -26,6 +31,14 @@ METRICS_PATH = os.path.join(MODEL_DIR, "model_metrics.json")
 INPUT_DIR = "prediction_inputs"
 
 app = FastAPI(title="Java Defect Predictor")
+
+BASE_DIR = Path(__file__).resolve().parent
+
+app.mount(
+    "/static",
+    StaticFiles(directory=BASE_DIR),
+    name="static"
+)
 
 
 def ensure_dirs():
@@ -244,6 +257,12 @@ def render_page(result=None, error_message=""):
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>Java Defect Predictor</title>
+
+      <link
+        rel="icon"
+        type="image/png"
+        href="/static/image.png"
+      />
       <style>
         :root {{
           --bg: #f4efe6;
