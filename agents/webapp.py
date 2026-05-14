@@ -19,20 +19,21 @@ from defect_analyzer import (
     classify_error_types,
     compile_source,
     extract_class_name,
+    extract_fqn_class_name,
     extract_static_metrics,
     is_interactive_program,
     run_source,
 )
 from defect_rules import DEFECT_LABELS, detect_potential_defects
 
+BASE_DIR = Path(__file__).resolve().parent
+
 MODEL_DIR = "model_artifacts"
-MODEL_PATH = os.path.join(MODEL_DIR, "defect_model_bundle.joblib")
-METRICS_PATH = os.path.join(MODEL_DIR, "model_metrics.json")
+MODEL_PATH = str(BASE_DIR / MODEL_DIR / "defect_model_bundle.joblib")
+METRICS_PATH = str(BASE_DIR / MODEL_DIR / "model_metrics.json")
 INPUT_DIR = "prediction_inputs"
 
 app = FastAPI(title="Java Defect Predictor")
-
-BASE_DIR = Path(__file__).resolve().parent
 
 app.mount(
     "/static",
@@ -42,9 +43,9 @@ app.mount(
 
 
 def ensure_dirs():
-    os.makedirs(INPUT_DIR, exist_ok=True)
-    os.makedirs(os.path.join(BUILD_DIR, "classes"), exist_ok=True)
-    os.makedirs(os.path.join(BUILD_DIR, "test-classes"), exist_ok=True)
+    (BASE_DIR / INPUT_DIR).mkdir(parents=True, exist_ok=True)
+    (BASE_DIR / BUILD_DIR / "classes").mkdir(parents=True, exist_ok=True)
+    (BASE_DIR / BUILD_DIR / "test-classes").mkdir(parents=True, exist_ok=True)
 
 
 def load_model_bundle():
@@ -59,13 +60,15 @@ def load_model_bundle():
 
 def save_input_code(class_name, code):
     safe_name = class_name or "UserSubmission"
-    file_path = Path(INPUT_DIR) / f"{safe_name}.java"
+    file_path = BASE_DIR / INPUT_DIR / f"{safe_name}.java"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(code, encoding="utf-8")
     return str(file_path)
 
 
 def build_feature_row(code):
     class_name = extract_class_name(code, "UserSubmission")
+    binary_class_name = extract_fqn_class_name(code, class_name)
     metrics = extract_static_metrics(code)
     interactive = is_interactive_program(code)
     source_path = save_input_code(class_name, code)
@@ -77,7 +80,7 @@ def build_feature_row(code):
     exception_types = []
     runtime_out = ""
     if runtime_attempted:
-        runtime_errors, exception_types, runtime_out = run_source(class_name)
+        runtime_errors, exception_types, runtime_out = run_source(binary_class_name)
 
     total_defects = src_err + runtime_errors
     density = round((total_defects / max(metrics["loc"], 1)) * 1000, 2)

@@ -18,32 +18,26 @@ env.bak/
 venv.bak/
 *.egg-info/
 dist/
-build/
+# Python packaging output at repo root only (not agents/build/)
+/build/
 
 # Java
 *.class
 *.jar
+!agents/build/junit-standalone.jar
 *.war
 *.ear
 target/
 
 # Project Specific - Generated Data (Large/Auto-generated)
-agents/*.csv
-agents/*.json
-agents/*.txt
-!agents/sample_manifest.json
-agents/samples.txt
+
 agents/defect_analyzer_progress.json
 agents/defect_analyzer_skipped.csv
 
-# Build Artifacts
-agents/build/
+# Build Artifacts (keep junit-standalone.jar for clone-and-run; classes are generated)
+agents/build/classes/
+agents/build/test-classes/
 agents/__pycache__/
-
-# Model Artifacts (Large binary files - regenerate via training)
-agents/model_artifacts/*.joblib
-agents/model_artifacts/*.pkl
-agents/model_artifacts/*.h5
 
 # User Uploads (Runtime data)
 agents/prediction_inputs/*.java

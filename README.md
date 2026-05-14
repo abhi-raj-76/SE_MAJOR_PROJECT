@@ -123,13 +123,44 @@ cd "MAJOR PROJECT"
 pip install -r requirements.txt
 ```
 
+### Run web app on a new machine (no training)
+
+The repository includes pretrained files under `agents/model_artifacts/` (for example `defect_model_bundle.joblib` and `model_metrics.json`) and the JUnit runner at `agents/build/junit-standalone.jar`, so you can open the predictor after clone without running `train_defect_model.py`.
+
+**Windows (PowerShell)** — replace `<clone-path>` with the folder where you cloned the repo (the directory that contains `agents` and `requirements.txt`):
+
+```powershell
+cd "<clone-path>\agents"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r ..\requirements.txt
+javac -version   # JDK required; should print a version (not "not recognized")
+python -m uvicorn webapp:app --host 0.0.0.0 --port 8000
+```
+
+Then open http://localhost:8000 in a browser.
+
+**Linux or macOS (bash)** — same idea from the `agents` directory:
+
+```bash
+cd "<clone-path>/agents"
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r ../requirements.txt
+javac -version
+python -m uvicorn webapp:app --host 0.0.0.0 --port 8000
+```
+
 ### 2. Environment Setup
 Create `.env` file:
 ```env
 GITHUB_TOKEN=your_github_token_here  # Optional: for GitHub collection
 ```
 
-### 3. Train Model (Required for Web App)
+### 3. Train model (only if artifacts are missing)
+
+Skip this if `agents/model_artifacts/defect_model_bundle.joblib` and `model_metrics.json` are already present (for example after a fresh clone from GitHub).
+
 ```bash
 cd agents
 python defect_analyzer.py      # Generate dataset
@@ -137,9 +168,14 @@ python train_defect_model.py   # Train and save model
 ```
 
 ### 4. Run Web Interface
+
+From the `agents` directory (so imports and paths resolve correctly):
+
 ```bash
+cd agents
 uvicorn webapp:app --reload --host 0.0.0.0 --port 8000
 ```
+
 Open: http://localhost:8000
 
 ## Full Pipeline (Local Development)
@@ -239,7 +275,7 @@ Model loaded successfully
 Server started on port 10000
 ```
 
-Visit your app: `https://java-defect-predictor.onrender.com`
+Visit your app: `https://defect-prediction-uoh-project.onrender.com`
 
 ## Defect Analysis Output
 

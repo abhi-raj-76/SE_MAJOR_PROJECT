@@ -1,0 +1,467 @@
+LLM Java Defect Prediction Pipeline - Complete End-to-End Documentation
+========================================================================
+
+This document explains the complete workflow in this project:
+1) How Java samples are collected/generated
+2) How JUnit test samples are generated
+3) How defects are measured (compile/runtime/test) and converted into CSV datasets
+4) How ML models are trained and evaluated
+5) What target columns are used
+6) How probability values are computed and shown in the web app
+7) What files are produced at each stage
+
+
+PROJECT COMPONENTS
+------------------
+
+Primary scripts:
+- all_code_generator.py
+- test_case_generator.py
+- defect_analyzer.py
+- train_defect_model.py
+- webapp.py
+- defect_rules.py
+
+Primary directories:
+- java_samples/         -> Java source samples
+- test_samples/         -> generated JUnit test files
+- build/                -> compiled classes + junit standalone jar
+- model_artifacts/      -> trained model bundle + metrics/predictions
+- prediction_inputs/    -> temporary user-submitted code files for web inference
+
+
+STAGE 1 - JAVA SAMPLE EXTRACTION / GENERATION
+---------------------------------------------
+
+Script: all_code_generator.py
+
+What it does:
+- Takes user input: total number of Java samples (10-1000)
+- Splits count into:
+  - GitHub samples: min(total/2, 30)
+  - LLM samples: remaining samples
+- Saves all Java files into java_samples/
+- Writes manifest files:
+  - sample_manifest.json
+  - sample_manifest.csv
+
+1A) GitHub extraction:
+- Uses GitHub Code Search API with query extension:java
+- Requires GITHUB_TOKEN from .env
+- For each result:
+  - fetches file API URL
+  - base64-decodes file content
+  - marks source_origin = "github"
+  - stores source_url and github_api_url in manifest
+
+1B) LLM generation:
+- Uses Ollama endpoint: http://localhost:11434/api/generate
+- Model in current code: qwen2.5-coder:1.5b
+- Prompt asks for simple Java class (max ~40 lines) by topic
+- Marks source_origin = "llm"
+- source_topic is one of predefined TOPICS
+
+1C) Filename and class handling:
+- Tries to extract public class name via regex
+- Uses ClassName.java when possible
+- Uses sample_N.java fallback if class name missing
+- Handles duplicates via suffixes _2, _3, etc.
+
+Outputs of Stage 1:
+- java_samples/*.java
+- sample_manifest.json
+- sample_manifest.csv
+
+
+STAGE 2 - TEST SAMPLE GENERATION
+--------------------------------
+
+Script: test_case_generator.py
+
+What it does:
+- Reads java_samples/*.java
+- Extracts:
+  - class name
+  - public methods (excluding main)
+- Asks Ollama to generate JUnit 5 tests
+- Validates generated test code
+- Saves tests into test_samples/ClassNameTest.java
+
+Important test-generation rules in prompt:
+- Return raw Java code only
+- Must include:
+  - import org.junit.jupiter.api.Test;
+  - import static org.junit.jupiter.api.Assertions.*;
+- Test class name must be ClassNameTest
+- Use only methods that actually exist in source
+- If only main() exists -> minimal smoke test
+
+Validation checks performed:
+- No markdown backticks
+- JUnit 5 imports present
+- No JUnit 4 imports (org.junit.Test / org.junit.Assert)
+- @Test annotations exist
+- Test class name matches ClassNameTest
+- Method calls in tests should match extracted source methods
+
+Retry behavior:
+- If first generation invalid, retries once
+- If still invalid, counts as failed
+
+Outputs of Stage 2:
+- test_samples/*.java
+
+
+STAGE 3 - DEFECT ANALYSIS + CSV DATASET CREATION
+-------------------------------------------------
+
+Script: defect_analyzer.py
+
+Main purpose:
+- For each java sample, combine static metrics + execution/test outcomes
+- Produce defect labels and defect density
+- Export report + dataset CSV files for ML
+
+3A) Setup:
+- Ensures build/classes and build/test-classes directories exist
+- Auto-downloads JUnit standalone jar if missing:
+  build/junit-standalone.jar
+
+3B) Per-file pipeline:
+For each file in java_samples/:
+
+Step 1: Source compile check
+- Command: javac -d build/classes <source.java>
+- Captures compile errors/warnings by parsing output
+- src_compiled, src_compile_errors, src_warnings
+
+Step 2: Source runtime check
+- Runs only if:
+  - source compiled successfully
+  - has main method
+  - not interactive program (Scanner/System.in)
+- Command: java -cp build/classes <ClassName>
+- Captures runtime exceptions/errors from output
+- runtime_attempted, runtime_errors, exception_types
+
+Step 3: Test compile check
+- Looks for matching test file test_samples/ClassNameTest.java
+- Command: javac -cp <classes + junit.jar> -d build/test-classes <test.java>
+- test_exists, test_compiled, test_compile_errors, test_warnings
+
+Step 4: JUnit execution
+- Runs only if test exists and test compiled
+- Command: java -jar junit-standalone.jar --class-path ... --select-class ClassNameTest --details summary
+- Extracts tests_passed, tests_failed, tests_total from summary text
+
+3C) Timeouts and skip handling:
+- compile timeout: COMPILE_TIMEOUT_SEC
+- runtime timeout: RUN_TIMEOUT_SEC
+- test compile timeout: TEST_COMPILE_TIMEOUT_SEC
+- junit timeout: JUNIT_TIMEOUT_SEC
+- hard per-file watchdog timeout: PER_FILE_TIMEOUT_SEC
+- On timeout/failure:
+  - creates fallback error row
+  - logs in defect_analyzer_skipped.csv
+  - continues pipeline without stopping entire run
+
+3D) Resume/progress mechanism:
+- Progress file: defect_analyzer_progress.json
+- Stores processed rows and current index
+- On restart, resumes from last saved position
+
+3E) Static feature extraction:
+From source code, computes:
+- total_lines, blank_lines, comment_lines, loc
+- class_count, method_count, field_count, import_count
+- if_count, loop_count, switch_count, catch_count, throw_count, return_count
+- public_method_count, static_method_count
+- has_main_method
+- max_nesting_depth
+- cyclomatic_estimate
+- avg_method_loc
+- comment_ratio
+- is_interactive_program
+
+3F) Defect-rule labels from defect_rules.py:
+Binary columns:
+- has_unchecked_division
+- has_array_bounds_risk
+- has_null_handling_risk
+- has_possible_null_dereference
+- has_swallowed_exception
+- has_resource_leak_risk
+- has_infinite_loop_risk
+- has_unbounded_recursion_risk
+- has_missing_input_validation
+
+These are regex/heuristic risk indicators from code text.
+
+3G) Defect calculations:
+
+Error group counts:
+- CE (source compile errors)  = src_compile_errors
+- RE (runtime errors)         = runtime_errors
+- TCE (test compile errors)   = test_compile_errors
+- Test failure count          = tests_failed
+
+Total defects:
+- total_defects = src_compile_errors + runtime_errors + test_compile_errors + tests_failed
+
+Binary main target:
+- is_defective = 1 if total_defects > 0 else 0
+
+Defect type text:
+- defect_types is comma-separated from:
+  - source_compile
+  - runtime
+  - test_compile
+  - test_failure
+
+Defect density:
+- defect_density = (total_defects / loc) * 1000
+- loc uses non-blank, non-comment-like lines and minimum loc is 1
+
+Density grade:
+- Clean  -> density == 0
+- Low    -> density < 4.3
+- Medium -> 4.3 <= density <= 7.47
+- High   -> density > 7.47
+
+3H) CSV outputs:
+- defect_report.csv
+  (high-level report fields)
+- defect_dataset.csv
+  (full ML feature dataset)
+- defect_dataset_train.csv
+  (80% split by default)
+- defect_dataset_test.csv
+  (20% split by default)
+
+Also:
+- defect_analyzer_skipped.csv
+- defect_analyzer_progress.json (removed on successful completion)
+
+
+STAGE 4 - ML TRAINING AND EVALUATION
+------------------------------------
+
+Script: train_defect_model.py
+
+4A) Dataset loading:
+- If defect_dataset_train.csv and defect_dataset_test.csv exist:
+  - uses them directly
+- Else:
+  - uses defect_dataset.csv
+  - performs train_test_split(test_size=0.2, stratify=is_defective when available)
+
+4B) Targets trained:
+- Main target:
+  - is_defective
+- Additional defect-label targets:
+  - all labels from DEFECT_LABELS (from defect_rules.py)
+
+So total targets = [is_defective] + 9 defect-rule labels.
+
+4C) Feature selection logic:
+
+General dropped columns for all targets:
+- file, class_name, source_topic, defect_types, density_grade, exception_types
+- all DEFECT_LABELS columns (to avoid directly using label columns as features)
+
+Extra dropped columns for is_defective target only:
+
+Direct leakage columns:
+- src_compile_errors
+- runtime_errors
+- test_compile_errors
+- tests_failed
+- total_defects
+- defect_density
+
+Dynamic outcome columns (also leakage-like):
+- src_compiled
+- src_warnings
+- runtime_attempted
+- test_exists
+- test_compiled
+- test_warnings
+- tests_passed
+- tests_total
+- test_status
+
+Reason:
+- These columns strongly reveal defect outcomes.
+- Removing them gives more realistic predictive performance.
+
+4D) Models evaluated per target:
+- LogisticRegression (class_weight=balanced, scaled numeric)
+- RandomForestClassifier (class_weight=balanced)
+- GradientBoostingClassifier
+
+Fallback:
+- If training target has only one class -> DummyClassifier constant_baseline
+
+4E) Preprocessing:
+- Numeric/bool columns:
+  - median imputation
+  - optional standard scaling (for logistic regression)
+- Categorical columns:
+  - most-frequent imputation
+  - OneHotEncoder(handle_unknown="ignore")
+
+4F) Evaluation metrics:
+- accuracy
+- confusion_matrix (forced labels [0,1])
+- classification_report (labels [0,1], zero_division=0)
+
+Best-model selection per target:
+- Primary sort: weighted F1
+- Secondary sort: accuracy
+
+4G) Training outputs in model_artifacts/:
+- defect_model_bundle.joblib
+  Contains for each target:
+  - best_model_name
+  - fitted pipeline
+  Also stores per-target feature lists.
+
+- model_metrics.json
+  Contains:
+  - train/test row counts
+  - feature list/count for main target
+  - per-target best model + metrics
+  - accuracy_percent string format (e.g., 67.15%)
+
+- model_comparison.json
+  Contains per-target comparison across all candidate models.
+
+- test_predictions.csv
+  Contains predictions for main target is_defective on test set.
+
+
+TARGET COLUMNS SUMMARY
+----------------------
+
+Main prediction target:
+- is_defective (binary)
+
+Auxiliary multi-target outputs:
+- has_unchecked_division
+- has_array_bounds_risk
+- has_null_handling_risk
+- has_possible_null_dereference
+- has_swallowed_exception
+- has_resource_leak_risk
+- has_infinite_loop_risk
+- has_unbounded_recursion_risk
+- has_missing_input_validation
+
+
+HOW PROBABILITY WORKS
+---------------------
+
+There are two probability contexts:
+
+A) During offline training/evaluation (train_defect_model.py):
+- For each model, if predict_proba exists:
+  - Uses column for class 1 as defect probability
+  - If only one class exists in model output, handles shape safely
+- Saves predicted defect probability values into test_predictions.csv for the main target.
+
+B) During web inference (webapp.py):
+- Loads trained model bundle and metrics
+- Builds one feature row from submitted code
+- Calls pipeline.predict() for label
+- Calls pipeline.predict_proba() when available
+- For main target:
+  - probability = P(is_defective = 1)
+  - displayed as percentage in UI (e.g., 72.43%)
+- For each defect-label target:
+  - also predicts label and probability (if available)
+  - shown in "ML Defect-Type Predictions" section
+
+Important note:
+- Probability is model confidence under learned statistical patterns.
+- It is not a formal guarantee that defects truly exist.
+
+
+STAGE 5 - WEB APP PREDICTION FLOW
+---------------------------------
+
+Script: webapp.py
+
+Flow:
+1) User pastes code or uploads .java
+2) Script saves file to prediction_inputs/
+3) Extracts static metrics + compile/runtime behavior
+   (test metrics are not provided in web mode)
+4) Creates feature row
+5) Loads best pipelines from defect_model_bundle.joblib
+6) Predicts:
+   - is_defective label + probability
+   - all defect label predictions + probabilities
+7) Renders HTML page with:
+   - prediction class/probability
+   - density grade
+   - observed defects at submission time
+   - code metrics
+   - compiler/runtime output
+
+
+FULL EXECUTION ORDER (RECOMMENDED)
+----------------------------------
+
+Run from agents/ directory:
+
+1) python all_code_generator.py
+2) python test_case_generator.py
+3) python defect_analyzer.py
+4) python train_defect_model.py
+5) uvicorn webapp:app --reload
+
+
+KEY OUTPUT FILES BY STAGE
+-------------------------
+
+After Stage 1:
+- java_samples/*.java
+- sample_manifest.csv
+- sample_manifest.json
+
+After Stage 2:
+- test_samples/*Test.java
+
+After Stage 3:
+- defect_report.csv
+- defect_dataset.csv
+- defect_dataset_train.csv
+- defect_dataset_test.csv
+- defect_analyzer_skipped.csv (if any skips)
+
+After Stage 4:
+- model_artifacts/defect_model_bundle.joblib
+- model_artifacts/model_metrics.json
+- model_artifacts/model_comparison.json
+- model_artifacts/test_predictions.csv
+
+During Stage 5 runtime:
+- prediction_inputs/*.java
+
+
+PRACTICAL INTERPRETATION NOTES
+------------------------------
+
+1) Accuracy should not be interpreted alone:
+- Also check precision/recall/F1 for class 1.
+
+2) If accuracy is unrealistically high (e.g., 100%):
+- Usually indicates leakage features were included.
+
+3) Current training code already removes known leakage/outcome columns for is_defective.
+
+4) Timeout/skip rows are still included in dataset with defect counts,
+   so training data represents hard/problematic samples instead of dropping them.
+
+
+END OF DOCUMENT

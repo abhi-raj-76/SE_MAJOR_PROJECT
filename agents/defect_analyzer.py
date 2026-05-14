@@ -21,6 +21,7 @@ Requirements:
 
 import os
 import re
+import shutil
 import subprocess
 import csv
 import random
@@ -38,6 +39,8 @@ DATASET_CSV = "defect_dataset.csv"
 TRAIN_CSV   = "defect_dataset_train.csv"
 TEST_CSV    = "defect_dataset_test.csv"
 BUILD_DIR   = "build"
+# Paths for javac/java must not depend on the process cwd (uvicorn may start elsewhere).
+_AGENT_ROOT = os.path.dirname(os.path.abspath(__file__))
 MANIFEST_CSV = "sample_manifest.csv"
 TRAIN_RATIO = 0.8
 RANDOM_SEED = 42
@@ -54,12 +57,12 @@ JUNIT_JAR_URL = (
     "junit-platform-console-standalone/1.10.0/"
     "junit-platform-console-standalone-1.10.0-all.jar"
 )
-JUNIT_JAR = os.path.join(BUILD_DIR, "junit-standalone.jar")
+JUNIT_JAR = os.path.join(_AGENT_ROOT, BUILD_DIR, "junit-standalone.jar")
 
 
 def setup():
-    os.makedirs(os.path.join(BUILD_DIR, "classes"), exist_ok=True)
-    os.makedirs(os.path.join(BUILD_DIR, "test-classes"), exist_ok=True)
+    os.makedirs(os.path.join(_AGENT_ROOT, BUILD_DIR, "classes"), exist_ok=True)
+    os.makedirs(os.path.join(_AGENT_ROOT, BUILD_DIR, "test-classes"), exist_ok=True)
 
     if not os.path.exists(JUNIT_JAR):
         print("  Downloading JUnit standalone runner (~8MB)...")
@@ -93,6 +96,16 @@ def count_loc(code):
 def extract_class_name(code, fallback="Unknown"):
     match = re.search(r'public\s+class\s+(\w+)', code)
     return match.group(1) if match else fallback
+
+
+def extract_fqn_class_name(code, fallback="Unknown"):
+    """Simple name or fully qualified name for java -cp ... <main class>."""
+    pkg_m = re.search(r"^\s*package\s+([\w.]+)\s*;", code, re.MULTILINE)
+    cls_m = re.search(r"public\s+class\s+(\w+)", code)
+    simple = cls_m.group(1) if cls_m else fallback
+    if pkg_m:
+        return f"{pkg_m.group(1)}.{simple}"
+    return simple
 
 
 def count_pattern(code, pattern):
@@ -224,7 +237,17 @@ def run_cmd(cmd, timeout=30):
 
 
 def compile_source(filepath):
-    out_dir = os.path.join(BUILD_DIR, "classes")
+    if not shutil.which("javac"):
+        return (
+            False,
+            0,
+            0,
+            "javac was not found on PATH. Install a JDK (not only a JRE) and add "
+            "its bin directory (for example ...\\jdk-17\\bin) to your PATH, then restart the terminal.",
+        )
+    filepath = os.path.normpath(os.path.abspath(filepath))
+    out_dir = os.path.join(_AGENT_ROOT, BUILD_DIR, "classes")
+    os.makedirs(out_dir, exist_ok=True)
     rc, stdout, stderr = run_cmd(
         ["javac", "-d", out_dir, filepath],
         timeout=COMPILE_TIMEOUT_SEC
@@ -235,10 +258,11 @@ def compile_source(filepath):
     return rc == 0, errors, warnings, output
 
 
-def run_source(class_name):
-    classes_dir = os.path.join(BUILD_DIR, "classes")
+def run_source(binary_class_name):
+    """binary_class_name is the JVM class name (e.g. com.app.Demo or Demo)."""
+    classes_dir = os.path.join(_AGENT_ROOT, BUILD_DIR, "classes")
     rc, stdout, stderr = run_cmd(
-        ["java", "-cp", classes_dir, class_name], timeout=RUN_TIMEOUT_SEC
+        ["java", "-cp", classes_dir, binary_class_name], timeout=RUN_TIMEOUT_SEC
     )
     output = stderr + stdout
     uncaught_events = re.findall(
@@ -260,11 +284,13 @@ def run_source(class_name):
 
 
 def compile_test(test_filepath):
+    if not os.path.isabs(test_filepath):
+        test_filepath = os.path.normpath(os.path.join(_AGENT_ROOT, test_filepath))
     if not os.path.exists(test_filepath):
         return False, 0, 0, "No test file"
 
-    src_cp    = os.path.join(BUILD_DIR, "classes")
-    test_out  = os.path.join(BUILD_DIR, "test-classes")
+    src_cp    = os.path.join(_AGENT_ROOT, BUILD_DIR, "classes")
+    test_out  = os.path.join(_AGENT_ROOT, BUILD_DIR, "test-classes")
     classpath = f"{src_cp}{os.pathsep}{JUNIT_JAR}"
 
     rc, stdout, stderr = run_cmd(
@@ -280,8 +306,8 @@ def run_tests(test_class_name):
     if not os.path.exists(JUNIT_JAR):
         return 0, 0, 0, "JUnit JAR missing"
 
-    src_cp    = os.path.join(BUILD_DIR, "classes")
-    test_cp   = os.path.join(BUILD_DIR, "test-classes")
+    src_cp    = os.path.join(_AGENT_ROOT, BUILD_DIR, "classes")
+    test_cp   = os.path.join(_AGENT_ROOT, BUILD_DIR, "test-classes")
     classpath = f"{src_cp}{os.pathsep}{test_cp}{os.pathsep}{JUNIT_JAR}"
 
     rc, stdout, stderr = run_cmd([
@@ -391,6 +417,7 @@ def analyze_file(source_path, manifest_map):
     
     try:
         class_name = extract_class_name(code, os.path.splitext(filename)[0])
+        binary_class_name = extract_fqn_class_name(code, class_name)
         metrics    = extract_static_metrics(code)
         interactive_program = is_interactive_program(code)
         defect_label_columns = build_defect_label_columns(code)
@@ -411,7 +438,7 @@ def analyze_file(source_path, manifest_map):
         rt_count, ex_types, run_out = (0, [], "")
         runtime_attempted = metrics["has_main_method"] and src_ok and not interactive_program
         if runtime_attempted:
-            rt_count, ex_types, run_out = run_source(class_name)
+            rt_count, ex_types, run_out = run_source(binary_class_name)
             if "Timed out" in run_out:
                 return create_error_result(
                     filename,
@@ -420,7 +447,7 @@ def analyze_file(source_path, manifest_map):
                 )
 
         # 3. Compile test
-        test_path = os.path.join(TEST_DIR, f"{class_name}Test.java")
+        test_path = os.path.join(_AGENT_ROOT, TEST_DIR, f"{class_name}Test.java")
         test_exists = os.path.exists(test_path)
         t_ok, t_err, t_warn, t_out = compile_test(test_path)
         if "Timed out" in t_out:
