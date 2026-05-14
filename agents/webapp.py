@@ -1,6 +1,10 @@
+import html
 import json
+import logging
 import os
+import traceback
 from pathlib import Path
+from typing import Optional
 
 from fastapi.staticfiles import StaticFiles
 
@@ -33,6 +37,8 @@ MODEL_PATH = str(BASE_DIR / MODEL_DIR / "defect_model_bundle.joblib")
 METRICS_PATH = str(BASE_DIR / MODEL_DIR / "model_metrics.json")
 INPUT_DIR = "prediction_inputs"
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Java Defect Predictor")
 
 app.mount(
@@ -52,7 +58,11 @@ def load_model_bundle():
     if not os.path.exists(MODEL_PATH) or not os.path.exists(METRICS_PATH):
         return None, None
 
-    model = joblib.load(MODEL_PATH)
+    try:
+        model = joblib.load(MODEL_PATH)
+    except Exception:
+        logger.exception("Failed to load joblib model from %s", MODEL_PATH)
+        raise
     with open(METRICS_PATH, "r", encoding="utf-8") as f:
         metrics = json.load(f)
     return model, metrics
@@ -113,8 +123,8 @@ def build_feature_row(code):
         "is_defective": classify_binary_defect(total_defects),
         "defect_types": classify_error_types(src_err, runtime_errors, 0, 0),
         "potential_defects": potential_defects,
-        "src_compile_out": src_out[:1200],
-        "runtime_out": runtime_out[:1200],
+        "src_compile_out": (src_out or "")[:1200],
+        "runtime_out": (runtime_out or "")[:1200],
     }
     return row
 
@@ -185,15 +195,18 @@ def render_page(result=None, error_message=""):
         }
 
         predicted_items = [
-            item for item in result.get("ml_defect_predictions", [])
-            if item.get("predicted") == 1
+            item
+            for item in result.get("ml_defect_predictions", [])
+            if int(item.get("predicted", 0)) == 1
         ]
 
         potential_items = ""
         for item in predicted_items:
             readable_label = label_to_text.get(item["label"], item["label"].replace("_", " "))
             confidence = (
-                f"{item['probability']:.2%}" if item["probability"] is not None else "N/A"
+                f"{float(item['probability']):.2%}"
+                if item.get("probability") is not None
+                else "N/A"
             )
             potential_items += (
                 f"<li><strong>{readable_label}</strong> "
@@ -204,19 +217,23 @@ def render_page(result=None, error_message=""):
             if potential_items
             else "<p>No specific defect type was predicted for this code.</p>"
         )
-        probability_html = (
-            f"<p><strong>Predicted defect probability:</strong> {result['probability']:.2%}</p>"
-            if result["probability"] is not None
-            else ""
-        )
+        probability_html = ""
+        prob = result.get("probability")
+        if prob is not None:
+            try:
+                probability_html = (
+                    f"<p><strong>Predicted defect probability:</strong> {float(prob):.2%}</p>"
+                )
+            except (TypeError, ValueError):
+                probability_html = "<p><strong>Predicted defect probability:</strong> N/A</p>"
         result_html = f"""
         <section class="card result-card">
           <h2>Prediction</h2>
-          <p><strong>Class:</strong> {result['class_name']}</p>
+          <p><strong>Class:</strong> {html.escape(str(result.get('class_name', '')))}</p>
           <p><strong>Defect predicted:</strong> {"Yes" if result['predicted_label'] == 1 else "No"}</p>
           {probability_html}
           <p><strong>Compile status:</strong> {"Compiled" if result['src_compiled'] else "Compile failed"}</p>
-          <p><strong>Density grade:</strong> {result['density_grade']}</p>
+          <p><strong>Density grade:</strong> {html.escape(str(result.get('density_grade', '')))}</p>
           <p><strong>Observed defects counted now:</strong> {result['total_defects']}</p>
           <p><strong>Defect density:</strong> {result['defect_density']} defects/KLOC</p>
         </section>
@@ -243,15 +260,21 @@ def render_page(result=None, error_message=""):
         </section>
         <section class="card">
           <h2>Compiler Output</h2>
-          <pre>{result['src_compile_out'] or "No compiler output"}</pre>
+          <pre>{html.escape(str(result.get('src_compile_out') or 'No compiler output'))}</pre>
         </section>
         <section class="card">
           <h2>Runtime Output</h2>
-          <pre>{result['runtime_out'] or "Runtime skipped or no output"}</pre>
+          <pre>{html.escape(str(result.get('runtime_out') or 'Runtime skipped or no output'))}</pre>
         </section>
         """
 
-    error_html = f'<section class="card error">{error_message}</section>' if error_message else ""
+    error_html = ""
+    if error_message:
+        error_html = (
+            '<section class="card error">'
+            f'<pre style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:0.9rem;margin:0">'
+            f"{html.escape(error_message)}</pre></section>"
+        )
 
     return f"""
     <!DOCTYPE html>
@@ -402,15 +425,30 @@ def home():
 
 
 @app.post("/analyze", response_class=HTMLResponse)
-async def analyze(code: str = Form(""), file: UploadFile | None = File(default=None)):
+async def analyze(code: str = Form(""), file: Optional[UploadFile] = File(default=None)):
     ensure_dirs()
-    model_bundle, model_metrics = load_model_bundle()
+    try:
+        model_bundle, model_metrics = load_model_bundle()
+    except Exception:
+        logger.exception("Model load failed")
+        detail = traceback.format_exc()
+        return render_page(
+            error_message=(
+                "Could not load the saved model (defect_model_bundle.joblib). "
+                "This is usually a scikit-learn / numpy version mismatch with the machine "
+                "that trained the bundle.\n\n"
+                "Fix: from your venv, run: pip install -r ../requirements.txt "
+                "(use the pinned versions from the repo), then restart uvicorn.\n\n"
+                f"Technical detail:\n{detail}"
+            )
+        )
 
     if model_bundle is None or model_metrics is None:
         return render_page(
             error_message=(
-                "Model artifacts are missing. Run test generation, defect analysis, and "
-                "train_defect_model.py before using the website."
+                "Model artifacts are missing under agents/model_artifacts/. "
+                "Ensure defect_model_bundle.joblib and model_metrics.json are committed "
+                "and were cloned (not skipped by Git LFS or a sparse checkout)."
             )
         )
 
@@ -422,9 +460,23 @@ async def analyze(code: str = Form(""), file: UploadFile | None = File(default=N
     if not submitted_code:
         return render_page(error_message="Please paste Java code or upload a .java file.")
 
-    result = build_feature_row(submitted_code)
-    predicted_label, probability, defect_type_predictions = make_prediction(result, model_bundle, model_metrics)
-    result["predicted_label"] = predicted_label
-    result["probability"] = probability
-    result["ml_defect_predictions"] = defect_type_predictions
-    return render_page(result=result)
+    try:
+        result = build_feature_row(submitted_code)
+        predicted_label, probability, defect_type_predictions = make_prediction(
+            result, model_bundle, model_metrics
+        )
+        result["predicted_label"] = predicted_label
+        result["probability"] = probability
+        result["ml_defect_predictions"] = defect_type_predictions
+        return render_page(result=result)
+    except Exception:
+        logger.exception("Analyze request failed")
+        detail = traceback.format_exc()
+        return render_page(
+            error_message=(
+                "Something went wrong while analyzing your submission. "
+                "See the traceback below. Common causes: incompatible ML library versions, "
+                "or an unexpected value from the Java toolchain.\n\n"
+                f"{detail}"
+            )
+        )
