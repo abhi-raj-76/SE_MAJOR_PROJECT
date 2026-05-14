@@ -239,7 +239,7 @@ Model loaded successfully
 Server started on port 10000
 ```
 
-Visit your app: `https://java-defect-predictor.onrender.com`
+Visit your app: `https://defect-prediction-uoh-project.onrender.com/`
 
 ## Defect Analysis Output
 
